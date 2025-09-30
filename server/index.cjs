@@ -1,4 +1,3 @@
-// server/index.cjs
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -17,7 +16,10 @@ const PORT = process.env.PORT || 3001;
 
 // Initialize services
 const db = new Database();
-const openai = new OpenAIService(process.env.OPENAI_API_KEY);
+const openai = new OpenAIService(process.env.OPENAI_API_KEY, process.env.OPENAI_BASE_URL);
+
+// Quick debug: print key prefix (safe)
+console.log('OPENAI_KEY_PREFIX:', (process.env.OPENAI_API_KEY || 'NO_KEY').slice(0, 8));
 
 // Middleware
 app.use(helmet());
@@ -76,10 +78,11 @@ app.post('/api/upload-resume', upload.single('resume'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     const parsedText = await extractTextFromFile(req.file.path);
-    let contactInfo = parseContactInfo(parsedText);
+    let contactInfo = parseContactInfo(parsedText || '');
 
     if (!contactInfo.name || !contactInfo.email || !contactInfo.phone) {
-      const aiExtraction = await openai.extractContactInfo(parsedText);
+      // OpenAI may be mocked if no API key provided
+      const aiExtraction = await openai.extractContactInfo(parsedText || '');
       contactInfo = { ...contactInfo, ...aiExtraction };
     }
 
@@ -116,17 +119,22 @@ app.post('/api/evaluate-answer', async (req, res) => {
 
     const evaluation = await openai.evaluateAnswer(question_text, difficulty, answer_text);
 
-    await db.saveAnswer({
-      candidate_id,
-      question_id,
-      question_text,
-      difficulty,
-      answer_text,
-      score: evaluation.score,
-      feedback: evaluation.feedback,
-      confidence: evaluation.confidence,
-      timestamp: new Date().toISOString()
-    });
+    // Guard: do not attempt DB insert without candidate_id
+    if (candidate_id) {
+      await db.saveAnswer({
+        candidate_id,
+        question_id,
+        question_text,
+        difficulty,
+        answer_text,
+        score: evaluation.score,
+        feedback: evaluation.feedback,
+        confidence: evaluation.confidence,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.warn('evaluate-answer called without candidate_id. Skipping DB save.');
+    }
 
     res.json(evaluation);
   } catch (error) {

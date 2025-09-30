@@ -79,6 +79,7 @@ const candidateSlice = createSlice({
         if (name) state.name = name;
         if (email) state.email = email;
         if (phone) state.phone = phone;
+        state.status = 'uploaded';
       })
       .addCase(uploadResume.rejected, (state, action) => {
         state.loading = false;
